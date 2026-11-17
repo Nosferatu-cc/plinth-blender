@@ -1,5 +1,4 @@
 ![Plinth Logo](images/Plinth-Black.png)
-# Plinth
 
 **A minimal product-photography studio for Blender.** Build a studio around
 your product in one click, light it with plain-language controls, and shoot
