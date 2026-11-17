@@ -58,7 +58,7 @@ blender --command extension build --source-dir plinth --output-dir dist
 ## Community Showcase
 | | |
 |---|---|
-| ![hypercar-front](images/hypercar-front.jpg) | ![hypercar-headlight](hypercar-headlight.jpg) |
+| ![hypercar-front](images/hypercar-front.jpg) | ![hypercar-headlight](images/hypercar-headlight.jpg) |
 | ![hyerpcar-hood](images/hypercar-hood.jpg) | ![render1](images/render1.png) |
 | ![render2](images/render2.png) | ![render3](images/render3.png) |
 | ![render4](images/render4.png) | ![render5](images/render5.png) |
