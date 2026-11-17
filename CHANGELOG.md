@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.13.0 (unreleased)
+## 0.13.1 (2026-11-17)
 
 - **Real light types: Area, Spot, Point and Sun.** A light's *Type* is now
   Blender's own light, with what that light can do: an area light's shape
@@ -19,6 +19,9 @@
   glass now gets the same see-through pane Plinth's own glass uses in Eevee,
   so every layer shows, sharp; Cycles still renders the material as it is.
   Frosted and solid glass keep refracting.
+
+## 0.13.0 (2026-11-17)
+
 - **Fixed: the Studio card's Backdrop slider stuck at 0.** Dragged to black,
   it could never be brought back up; it now comes back with the colour it
   had. The edit pages' Hue and Saturation strips also keep the colour

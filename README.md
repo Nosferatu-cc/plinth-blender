@@ -99,20 +99,6 @@ frame exactly as they were.
 Everything lives in its own Plinth workspace; the rest of your Blender setup is
 untouched.
 
-## New in 0.13
-
-- **Free, open source and offline.** Nothing to sign in to. Plinth never
-  contacts a server and doesn't ask for network access.
-- **Real light types:** Area (Softbox, Strip, Disc, Oval), Spot (beam and edge),
-  Point and Sun, each with its own settings.
-- **Light and camera outlines** in the viewport, in the Light and Camera steps.
-- **Clear glass:** glass behind glass stays clear in Eevee instead of turning grey.
-- **Mirrored carbon:** triplanar or UV mapping with flip and turn, per part.
-- **Texture sets**, **Vantablack**, a **Background colour**, exact **X / Y / Z**
-  targets and **H** to hide a part and reach what's behind it.
-
-Every version: [CHANGELOG.md](CHANGELOG.md).
-
 ## Install
 
 Needs **Blender 4.2 or newer** (developed and tested on Blender 5.2).
@@ -140,6 +126,7 @@ blender --command extension build --source-dir plinth --output-dir dist
 - **Chat, previews and showing your shots:** [Discord](https://discord.gg/MbMfjbNNwW)
 - **More from the author:** [nosferatu.cc](https://nosferatu.cc)
 - **Contributing:** issues and pull requests welcome.
+- **What changed in each version:** [CHANGELOG.md](CHANGELOG.md)
 
 ## Licence
 
