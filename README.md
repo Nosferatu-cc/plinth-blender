@@ -64,6 +64,8 @@ blender --command extension build --source-dir plinth --output-dir dist
 | ![render4](images/render4.png) | ![render5](images/render5.png) |
 | ![render6](images/render6.png) | ![render7](images/render7.png) |
 | ![roadster-front](images/roadster-front.png) | ![spoiler-light](images/spoiler-light.png) |
+| ![Hero-bugatti](images/Hero.png) | ![Macro-Bugatti](images/Macro.png) |
+| ![three-quarter-bugatti](images/Three-quarter.png) | ![engine-pagani](images/engine.png) |
 
 ## Community and help
 
