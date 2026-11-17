@@ -1,0 +1,21 @@
+schema_version = "1.0.0"
+
+id = "plinth"
+version = "0.13.0"
+name = "Plinth"
+tagline = "A minimal product studio for Blender"
+maintainer = "Nosferatu.cc"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+tags = ["Render", "Lighting", "Camera"]
+
+[permissions]
+files = "Writes rendered images to the chosen output folder"
+clipboard = "Copies support info for bug reports"
+
+[build]
+paths_exclude_pattern = ["__pycache__/", "/.git/", "*.zip"]
