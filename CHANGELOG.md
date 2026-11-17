@@ -2,6 +2,23 @@
 
 ## 0.13.0 (unreleased)
 
+- **Real light types: Area, Spot, Point and Sun.** A light's *Type* is now
+  Blender's own light, with what that light can do: an area light's shape
+  (Softbox, Strip, Disc, Oval), width, height and spread; a spot's beam,
+  edge softness and bulb size; a point light's bulb size; the sun's size.
+  Before, every Plinth light was an area light and "Spot" only narrowed its
+  spread. Switching type keeps how bright and soft the light looks; looks
+  remember each light's type and a spot's beam; gobos work on every type.
+- **See your lights and shots.** The Light step draws every light as what it
+  is (the panel in its shape, a spot's cone out to its target, a bulb, a
+  sun) with a faint line to what it aims at; the Camera step draws every
+  shot's frame. The one you're editing is red.
+- **Fixed: glass behind glass turned grey in Eevee.** A model's own glass
+  (windows, headlight lenses) used Eevee's refraction, which sees only one
+  layer: glass close behind glass blurred into a grey sheet. Thin, clear
+  glass now gets the same see-through pane Plinth's own glass uses in Eevee,
+  so every layer shows, sharp; Cycles still renders the material as it is.
+  Frosted and solid glass keep refracting.
 - **Fixed: the Studio card's Backdrop slider stuck at 0.** Dragged to black,
   it could never be brought back up; it now comes back with the colour it
   had. The edit pages' Hue and Saturation strips also keep the colour

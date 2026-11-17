@@ -164,7 +164,9 @@ CARD_VISIBILITY = ("visible_camera", "visible_diffuse", "visible_glossy",
 # --- Lookups ------------------------------------------------------------------------
 
 def _data(light):
-    return light.data if isinstance(light, bpy.types.Object) else light
+    """The Light datablock, fresh (a type change leaves old references stale)."""
+    data = light.data if isinstance(light, bpy.types.Object) else light
+    return bpy.data.lights.get(data.name, data)
 
 
 def _objects(light):
@@ -202,11 +204,12 @@ def set_gobo(light, key):
     data["plinth_gobo"] = key
     _clear_light_nodes(data)
     if "texture" in preset and SAVED_SIZE not in data:
-        data[SAVED_SIZE] = (data.size, getattr(data, "size_y", data.size))
+        data[SAVED_SIZE] = own_size(data)
     elif "texture" not in preset and SAVED_SIZE in data:
         size, size_y = data[SAVED_SIZE]
-        data.size = size
-        if hasattr(data, "size_y"):
+        from . import studio
+        studio.set_light_size(data, size)
+        if data.type == "AREA":
             data.size_y = size_y
         del data[SAVED_SIZE]
     skipped = []
@@ -224,10 +227,12 @@ def set_gobo(light, key):
 def own_size(light):
     """(size, size_y) the light has without a pattern: its projector size is
     temporary (looks capture this one)."""
+    from . import studio
     data = _data(light)
     if SAVED_SIZE in data:
         return tuple(data[SAVED_SIZE])
-    return data.size, getattr(data, "size_y", data.size)
+    size = studio.light_size(data)
+    return size, (data.size_y if data.type == "AREA" else size)
 
 
 def forget_size(light):
@@ -242,10 +247,8 @@ def _set_projector(light, softness):
     scale = float(main.get("plinth_scale", 1.0)) if main is not None else 1.0
     lo, hi = PROJECTOR
     size = (lo + (hi - lo) * max(0.0, min(1.0, softness)) ** 1.5) * scale
-    aspect = data.size_y / data.size if getattr(data, "size_y", 0) and data.size else 1.0
-    data.size = size
-    if hasattr(data, "size_y"):
-        data.size_y = size * aspect
+    from . import studio
+    studio.set_light_size(data, size)              # an area light keeps its aspect
 
 
 def sync(light):

@@ -301,7 +301,7 @@ def page_light(scene, products):
     light = studio.active_light(scene)
     if light is None:
         return None
-    data = light.data
+    data = studio.fresh(light.data)
     sc = hud._rig_scale(scene)
     kelvin = studio.rgb_to_kelvin(tuple(data.color))
     gel = studio.light_gel(data)
@@ -319,22 +319,7 @@ def page_light(scene, products):
               rows[0], rows[4],
               ("note", "Picking a gel overrides warmth; dragging warmth clears the gel.")]
 
-    s_lo, s_hi = 0.05 * sc, 6 * sc
-    has_height = getattr(data, "shape", "") in {"RECTANGLE", "ELLIPSE"}
-    spread = math.degrees(getattr(data, "spread", math.pi))
-    shape = [
-        ("slider", "width", "Width", _frac(s_lo, s_hi, data.size), "%.2f m" % data.size,
-         lambda c, f: setattr(data, "size", _lerp(s_lo, s_hi, f)), (s_lo, s_hi, "lin")),
-        ("slider", "height", "Height" if has_height else "Height (strip and ellipse only)",
-         _frac(s_lo, s_hi, getattr(data, "size_y", data.size)),
-         "%.2f m" % getattr(data, "size_y", data.size),
-         (lambda c, f: setattr(data, "size_y", _lerp(s_lo, s_hi, f))) if has_height else None,
-         (s_lo, s_hi, "lin") if has_height else None),
-        ("slider", "spread", "Spread", _frac(1, 180, spread), "%d°" % round(spread),
-         lambda c, f: setattr(data, "spread", math.radians(_lerp(1, 180, f))), (1, 180, "lin")),
-        ("switch", "visible", "Visible in shots", "Show the light itself in frame (Cycles)",
-         studio.light_visible(light), _sel(studio.set_light_visible, light, not studio.light_visible(light))),
-    ]
+    shape = light_type_rows(light, data, sc)
 
     current = gobos.current_gobo(data)
     p = gobos.gobo_params(data)
@@ -355,11 +340,65 @@ def page_light(scene, products):
          param("softness", 0, 1) if has else None, (0, 1, "lin") if has else None),
         ("note", "A pattern turns the light into a small projector; None gives it back its size."),
     ]
-    return Page("LIGHT", hud.display(studio.light_label(light)),
-                studio.LIGHT_SHAPES[studio.light_shape(data)]["label"].upper(),
-                [("Colour", colour), ("Shape", shape), ("Gobo", gobo),
+    return Page("LIGHT", hud.display(studio.light_label(light)), hud.light_tag(data),
+                [("Colour", colour), ("Type", shape), ("Gobo", gobo),
                  ("Target", target_rows(scene, light, products))],
                 "Reset light", lambda c: studio.reset_light(c.scene, light, c.scene.plinth.last_look))
+
+
+def light_type_rows(light, data, sc):
+    """Edit light › Type: Blender's light type, then what that type has
+    (an area's shape and size, a spot's beam and edge, a bulb's size, the
+    sun's angle)."""
+    rows = [hud.type_row(data)]
+    s_lo, s_hi = 0.05 * sc, 6 * sc
+    visible = ("switch", "visible", "Visible in shots", "Show the light itself in frame (Cycles)",
+               studio.light_visible(light), _sel(studio.set_light_visible, light, not studio.light_visible(light)))
+    if data.type == "AREA":
+        shape = studio.light_shape(data)
+        has_height = data.shape in {"RECTANGLE", "ELLIPSE"}
+        spread = math.degrees(data.spread)
+        rows += [
+            ("shapes", [(k, studio.LIGHT_SHAPES[k]["label"], k == shape,
+                         _sel(studio.set_light_shape, data, k)) for k in studio.AREA_SHAPES]),
+            ("slider", "width", "Width", _frac(s_lo, s_hi, data.size), "%.2f m" % data.size,
+             lambda c, f: setattr(data, "size", _lerp(s_lo, s_hi, f)), (s_lo, s_hi, "lin")),
+            ("slider", "height", "Height" if has_height else "Height (strip and oval only)",
+             _frac(s_lo, s_hi, data.size_y), "%.2f m" % data.size_y,
+             (lambda c, f: setattr(data, "size_y", _lerp(s_lo, s_hi, f))) if has_height else None,
+             (s_lo, s_hi, "lin") if has_height else None),
+            ("slider", "spread", "Spread", _frac(1, 180, spread), "%d°" % round(spread),
+             lambda c, f: setattr(data, "spread", math.radians(_lerp(1, 180, f))), (1, 180, "lin")),
+            visible]
+    elif data.type == "SPOT":
+        r_hi = 2 * sc
+        rows += [
+            hud.beam_row(data),
+            ("slider", "edge", "Edge softness", data.spot_blend, "%d%%" % round(100 * data.spot_blend),
+             lambda c, f: setattr(data, "spot_blend", f), (0, 100, "lin")),
+            ("slider", "radius", "Bulb size", _frac(0, r_hi, 2 * data.shadow_soft_size),
+             "%.2f m" % (2 * data.shadow_soft_size),
+             lambda c, f: setattr(data, "shadow_soft_size", _lerp(0, r_hi, f) / 2), (0, r_hi, "lin")),
+            ("switch", "cone", "Show the cone", "Draw the beam as a volume in the viewport",
+             data.show_cone, _sel(setattr, data, "show_cone", not data.show_cone)),
+            visible]
+    elif data.type == "POINT":
+        r_hi = 2 * sc
+        rows += [
+            ("slider", "radius", "Bulb size", _frac(0, r_hi, 2 * data.shadow_soft_size),
+             "%.2f m" % (2 * data.shadow_soft_size),
+             lambda c, f: setattr(data, "shadow_soft_size", _lerp(0, r_hi, f) / 2), (0, r_hi, "lin")),
+            ("note", "Light in every direction: aiming doesn't change it, moving it does."),
+            visible]
+    else:                                                       # SUN
+        hi = math.degrees(studio.SUN_ANGLE_MAX)
+        angle = math.degrees(data.angle)
+        rows += [
+            ("slider", "angle", "Sun size", _frac(0, hi, angle), "%.1f°" % angle,
+             lambda c, f: setattr(data, "angle", math.radians(_lerp(0, hi, f))), (0, hi, "lin")),
+            ("note", "Parallel light, like daylight: only its direction counts. "
+                     "Aim it, or move it around the product.")]
+    return rows
 
 
 def target_rows(scene, obj, products):

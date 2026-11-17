@@ -20,6 +20,7 @@ User presets are small JSON files in the add-on's user folder.
 """
 
 import json
+import math
 import os
 import re
 
@@ -309,17 +310,36 @@ def capture(scene, label="My studio", description=""):
         offset = tuple((light.location - tgt.location) / scale) if tgt is not None else (0.0, 0.0, 0.0)
         if rig is not None:
             preset["lights"][label_] = {
-                "power": data.energy / (rig[3] * scale * scale),
+                "power": studio.light_power(data) / (rig[3] * scale * scale),
                 "softness": gobos.own_size(data)[0] / (rig[1] * scale),
                 "color": tuple(data.color), "gobo": gobos.current_gobo(data),
                 "shape": studio.light_shape(data), "offset": offset}
+            preset["lights"][label_].update(_beam(data))
         else:
             power, size = studio.light_base(light)
             preset.setdefault("extra", []).append(_extra(
-                label_, studio.light_shape(data), data.energy / (power * scale * scale),
+                label_, studio.light_shape(data), studio.light_power(data) / (power * scale * scale),
                 gobos.own_size(data)[0] / (size * scale), tuple(data.color), offset, gobos.current_gobo(data)))
+            preset["extra"][-1].update(_beam(data))
     preset["eevee"] = scene.plinth.eevee_preset
     return preset
+
+
+def _beam(data):
+    """A spot's beam (degrees) and edge softness, for a look to keep (0.13)."""
+    data = studio.fresh(data)
+    if data.type != "SPOT":
+        return {}
+    return {"beam": math.degrees(data.spot_size), "edge": data.spot_blend}
+
+
+def _set_beam(data, values):
+    data = studio.fresh(data)
+    if data.type == "SPOT":
+        if "beam" in values:
+            data.spot_size = math.radians(max(1.0, min(180.0, float(values["beam"]))))
+        if "edge" in values:
+            data.spot_blend = max(0.0, min(1.0, float(values["edge"])))
 
 
 def _restore_rig_light(scene, obj, name, scale):
@@ -359,14 +379,16 @@ def _add_look_light(scene, spec, scale):
         obj[LOOK_LIGHT] = True
         studio._link(obj, studio.studio_collection(scene))
     obj.location = tgt.location + Vector(spec.get("offset", (0.0, -2.5, 2.0))) * scale
+    studio.aim_at(obj, tgt)                          # first: a sun keeps its distance to the target
     skipped = studio.set_light_shape(data, spec.get("shape", "SOFTBOX") if spec.get("shape") in studio.LIGHT_SHAPES
                                      else "SOFTBOX")
-    data.energy = studio.NEW_LIGHT["power"] * scale * scale * float(spec.get("power", 1.0))
-    data.size = studio.NEW_LIGHT["size"] * scale * float(spec.get("softness", 1.0))
-    if hasattr(data, "size_y"):
+    data = studio.fresh(data)
+    studio.set_light_power(data, studio.NEW_LIGHT["power"] * scale * scale * float(spec.get("power", 1.0)))
+    studio.set_light_size(data, studio.NEW_LIGHT["size"] * scale * float(spec.get("softness", 1.0)))
+    if data.type == "AREA":
         data.size_y = data.size * studio.LIGHT_SHAPES[studio.light_shape(data)]["aspect"]
+    _set_beam(data, spec)
     data.color = tuple(spec.get("color", WHITE))[:3]
-    studio.aim_at(obj, tgt)
     skipped += gobos.set_gobo(data, spec.get("gobo", "NONE"))
     return skipped
 
@@ -459,19 +481,21 @@ def apply_lights(scene, preset):
         moved = "offset" in values or "shape" in values
         if not moved and obj.get(LOOK_MOVED):
             _restore_rig_light(scene, obj, name, scale)
-        if values.get("shape") in studio.LIGHT_SHAPES:
-            skipped += studio.set_light_shape(obj.data, values["shape"])
         if "offset" in values:
             obj.location = studio.get_target(scene).location + Vector(values["offset"]) * scale
+        shape = values.get("shape") if values.get("shape") in studio.LIGHT_SHAPES else None
+        if shape:
+            skipped += studio.set_light_shape(obj.data, shape)
         if moved:
             obj[LOOK_MOVED] = True
-        obj.data.energy = power * scale * scale * values["power"]
-        obj.data.size = size * scale * values["softness"]
-        if "shape" in values:
-            obj.data.size_y = obj.data.size * studio.LIGHT_SHAPES[values["shape"]]["aspect"]
-        else:
-            obj.data.size_y = size_y * scale * values["softness"]
-        obj.data.color = values["color"][:3]
+        data = studio.fresh(obj.data)
+        studio.set_light_power(data, power * scale * scale * values["power"])
+        studio.set_light_size(data, size * scale * values["softness"])
+        if data.type == "AREA":
+            data.size_y = (data.size * studio.LIGHT_SHAPES[shape]["aspect"] if shape
+                           else size_y * scale * values["softness"])
+        _set_beam(data, values)
+        data.color = values["color"][:3]
         skipped += gobos.set_gobo(obj.data, values.get("gobo", "NONE"))
     # Extra lights: the last look's go, this look's come.
     if not preset.get("rig") or "extra" in preset:
@@ -524,6 +548,9 @@ def normalise(data):
             got["shape"] = v["shape"]
         if isinstance(v.get("offset"), (list, tuple)) and len(v["offset"]) == 3:
             got["offset"] = tuple(float(c) for c in v["offset"])
+        for key in ("beam", "edge"):                     # 0.13: a spot's cone
+            if isinstance(v.get(key), (int, float)):
+                got[key] = float(v[key])
         if extra:
             got["name"] = str(v.get("name", "Light"))
             got.setdefault("shape", "SOFTBOX")

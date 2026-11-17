@@ -1311,13 +1311,26 @@ def _paint_more_kinds(e, s, hv):
 
 
 def _glyph(key, cx, cy, s, color):
-    if key == "SOFTBOX":
+    """Light type and shape tiles: what each light looks like."""
+    if key in {"SOFTBOX", "AREA"}:
         draw_rrect((cx - 11 * s, cy - 8 * s, 22 * s, 16 * s), color, 3 * s)
     elif key == "STRIP":
         draw_rrect((cx - 3 * s, cy - 11 * s, 6 * s, 22 * s), color, 3 * s)
+    elif key == "OVAL":
+        draw_rrect((cx - 5 * s, cy - 11 * s, 10 * s, 22 * s), color, 5 * s)
     elif key == "SPOT":
         draw_tris([(cx - 9 * s, cy - 9 * s), (cx + 9 * s, cy - 9 * s), (cx, cy + 9 * s)], color)
-    else:   # RING
+    elif key == "POINT":
+        draw_rrect((cx - 5 * s, cy - 5 * s, 10 * s, 10 * s), color, 5 * s)
+        draw_rrect((cx - 10 * s, cy - 10 * s, 20 * s, 20 * s), fade(color, 0.0), 10 * s,
+                   border=1.5 * s, border_color=fade(color, 0.5))
+    elif key == "SUN":
+        draw_rrect((cx - 5 * s, cy - 5 * s, 10 * s, 10 * s), color, 5 * s)
+        for i in range(8):
+            a = i * math.pi / 4
+            c, n = math.cos(a), math.sin(a)
+            _line((cx + c * 8 * s, cy + n * 8 * s), (cx + c * 12 * s, cy + n * 12 * s), 2 * s, color)
+    else:   # RING: the disc
         draw_rrect((cx - 7 * s, cy - 7 * s, 14 * s, 14 * s), fade(color, 0.0), 7 * s,
                    border=3 * s, border_color=color)
 

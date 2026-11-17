@@ -9,9 +9,9 @@ import sys
 for _name in [n for n in sys.modules if n.startswith(__name__ + ".")]:
     del sys.modules[_name]
 
-from . import props, materials, content, operators, overlay, nav, previews, ui  # noqa: E402
+from . import props, materials, content, operators, overlay, outlines, nav, previews, ui  # noqa: E402
 
-_modules = (props, materials, content, operators, overlay, nav, previews, ui)
+_modules = (props, materials, content, operators, overlay, outlines, nav, previews, ui)
 
 
 def register():

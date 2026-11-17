@@ -646,45 +646,193 @@ LIGHT_RIG = {
 }
 
 
-# Light shapes: what the light looks like in reflections and how it spreads.
-# Softness (size) is kept when switching shape; the shape sets the rest.
-LIGHT_SHAPES = {
-    "SOFTBOX": {"label": "Softbox", "description": "Big and even: soft shadows, broad highlights",
-                "settings": {"shape": "SQUARE", "spread": math.radians(180)}, "aspect": 1.0},
-    "STRIP": {"label": "Strip", "description": "Long and thin: crisp edge highlights",
-              "settings": {"shape": "RECTANGLE", "spread": math.radians(180)}, "aspect": 5.0},
-    "SPOT": {"label": "Spot", "description": "A focused pool of light with a soft edge",
-             "settings": {"shape": "DISK", "spread": math.radians(35)}, "aspect": 1.0},
-    "RING": {"label": "Ring", "description": "Round catchlight, like a ring light",
-             "settings": {"shape": "DISK", "spread": math.radians(180)}, "aspect": 1.0},
+# Light types (0.13): Blender's own lights, each with what it can do. Area is
+# a glowing panel in a shape; Spot a cone with a soft edge; Point a bare bulb;
+# Sun parallel light from far away. Switching type keeps how bright and how
+# soft the light looks: see light_power and light_size.
+LIGHT_TYPES = {
+    "AREA": {"label": "Area", "description": "A glowing panel: soft, even light in the shape you pick"},
+    "SPOT": {"label": "Spot", "description": "A cone of light with a soft edge: pools and accents"},
+    "POINT": {"label": "Point", "description": "A bare bulb: light in every direction"},
+    "SUN": {"label": "Sun", "description": "Parallel light from far away: crisp shadows, even across the set"},
 }
+
+# Light shapes: one key per look a light can have (looks and packs store it).
+# Area shapes set what the panel looks like in reflections; Spot, Point and Sun
+# are their own types. Softness (size) is kept when switching; the shape sets
+# the rest. "RING" is the disc (its key from before 0.13).
+LIGHT_SHAPES = {
+    "SOFTBOX": {"label": "Softbox", "type": "AREA", "description": "Big and even: soft shadows, broad highlights",
+                "settings": {"shape": "SQUARE"}, "aspect": 1.0},
+    "STRIP": {"label": "Strip", "type": "AREA", "description": "Long and thin: crisp edge highlights",
+              "settings": {"shape": "RECTANGLE"}, "aspect": 5.0},
+    "RING": {"label": "Disc", "type": "AREA", "description": "Round catchlight, like a ring light or beauty dish",
+             "settings": {"shape": "DISK"}, "aspect": 1.0},
+    "OVAL": {"label": "Oval", "type": "AREA", "description": "A long, rounded catchlight",
+             "settings": {"shape": "ELLIPSE"}, "aspect": 2.0},
+    "SPOT": {"label": "Spot", "type": "SPOT", "description": LIGHT_TYPES["SPOT"]["description"],
+             "settings": {}, "aspect": 1.0},
+    "POINT": {"label": "Point", "type": "POINT", "description": LIGHT_TYPES["POINT"]["description"],
+              "settings": {}, "aspect": 1.0},
+    "SUN": {"label": "Sun", "type": "SUN", "description": LIGHT_TYPES["SUN"]["description"],
+            "settings": {}, "aspect": 1.0},
+}
+AREA_SHAPES = tuple(k for k, v in LIGHT_SHAPES.items() if v["type"] == "AREA")
+SPOT_DEFAULTS = {"spot_size": math.radians(50.0), "spot_blend": 0.3}
+SPOT_RANGE = (math.radians(5.0), math.radians(160.0))       # Beam
+SUN_ANGLE_MAX = math.radians(30.0)
+
+# Brightness across types, in "area watts": what an area light (spread 180)
+# needs for the same light on its axis. Point and spot lights spread their
+# watts over the whole sphere, an area light over a hemisphere with cosine
+# falloff: 4x. A sun's strength is irradiance (W/m2): what an area light gives
+# at the sun's distance, kept from when it became a sun (SUN_DISTANCE).
+SPHERE_FACTOR = 4.0
+SUN_DISTANCE = "plinth_sun_distance"
+
+
+def light_object(light_data):
+    return next((o for o in bpy.data.objects if o.data == light_data), None)
+
+
+def fresh(light_data):
+    """The datablock again after a type change (an old reference keeps its old type)."""
+    return bpy.data.lights.get(light_data.name, light_data)
+
+
+def _sun_distance(data):
+    d = data.get(SUN_DISTANCE)
+    if d:
+        return float(d)
+    main = bpy.data.objects.get(TARGET)
+    return 3.0 * float(main.get("plinth_scale", 1.0)) if main is not None else 3.0
+
+
+def _distance_to_target(light_data):
+    obj = light_object(light_data)
+    scene = bpy.context.scene
+    tgt = aim_target(scene, obj) if obj is not None and scene is not None else None
+    if obj is None or tgt is None:
+        return _sun_distance(light_data)
+    return max(0.05, (obj.location - tgt.location).length)   # unparented; matrix_world may be stale
+
+
+def power_factor(light_data):
+    """The light's own unit (W, or a sun's W/m2) per area watt."""
+    t = light_data.type
+    if t == "SUN":
+        d = _sun_distance(light_data)
+        return 1.0 / (math.pi * d * d)
+    return SPHERE_FACTOR if t in {"SPOT", "POINT"} else 1.0
+
+
+def light_power(light_data):
+    """Brightness in area watts (the same number whatever the type)."""
+    return light_data.energy / power_factor(light_data)
+
+
+def set_light_power(light_data, watts):
+    light_data.energy = watts * power_factor(light_data)
+
+
+def power_label(light_data):
+    """The light's own number: watts, or a sun's strength."""
+    if light_data.type == "SUN":
+        return "%.2f W/m²" % light_data.energy if light_data.energy < 10 else "%.1f W/m²" % light_data.energy
+    return "%d W" % round(light_data.energy)
+
+
+def light_size(light_data):
+    """How soft the light is, as an area light's width in metres (every type):
+    a bulb's diameter, or the width the sun's disc has at its distance."""
+    data = fresh(light_data)
+    t = data.type
+    if t == "AREA":
+        return data.size
+    if t == "SUN":
+        return 2.0 * _sun_distance(data) * math.tan(data.angle / 2.0)
+    return 2.0 * data.shadow_soft_size
+
+
+def set_light_size(light_data, size):
+    """Set softness as light_size measures it; an area light keeps its aspect."""
+    data = fresh(light_data)
+    size = max(0.0, size)
+    t = data.type
+    if t == "AREA":
+        aspect = data.size_y / data.size if data.size else 1.0
+        data.size = size
+        data.size_y = size * aspect
+    elif t == "SUN":
+        data.angle = min(SUN_ANGLE_MAX, 2.0 * math.atan(size / 2.0 / _sun_distance(data)))
+    else:
+        data.shadow_soft_size = size / 2.0
+
+
+def set_light_type(light_data, light_type):
+    """Turn a light into another Blender light type, keeping its brightness and
+    softness. Returns the datablock (re-fetched: its Python type changed)."""
+    data = fresh(light_data)
+    if data.type == light_type:
+        return data
+    watts, size = light_power(data), light_size(data)
+    if light_type == "SUN":
+        data[SUN_DISTANCE] = _distance_to_target(data)
+    data.type = light_type
+    data = fresh(data)
+    if light_type == "SPOT" and not data.get("plinth_spot"):
+        for attr, value in SPOT_DEFAULTS.items():
+            setattr(data, attr, value)
+        data["plinth_spot"] = True
+    tune_light(data)
+    set_light_power(data, watts)
+    set_light_size(data, size)
+    return data
 
 
 def set_light_shape(light_data, key):
-    """Apply a LIGHT_SHAPES preset to a Light datablock. Returns skipped settings."""
+    """Apply a LIGHT_SHAPES key: the light type, and for an area light its
+    shape and aspect. Returns skipped settings."""
     preset = LIGHT_SHAPES[key]
+    data = set_light_type(light_data, preset["type"])
     skipped = []
     for attr, value in preset["settings"].items():
-        if hasattr(light_data, attr):
-            setattr(light_data, attr, value)
+        if hasattr(data, attr):
+            setattr(data, attr, value)
         else:
             skipped.append(attr)
-    if hasattr(light_data, "size_y"):
-        light_data.size_y = light_data.size * preset["aspect"]
-    light_data["plinth_shape"] = key
+    if preset["type"] == "AREA":
+        data.size_y = data.size * preset["aspect"]
+        data["plinth_area_shape"] = key
+    data["plinth_shape"] = key
     return skipped
 
 
 def light_shape(light_data):
     """Current LIGHT_SHAPES key, guessed from the light if Plinth never set it."""
-    key = light_data.get("plinth_shape")
-    if key in LIGHT_SHAPES:
+    data = fresh(light_data)
+    if data.type != "AREA":
+        return data.type
+    key = data.get("plinth_shape")
+    if key in AREA_SHAPES:
         return key
-    if getattr(light_data, "shape", "") == "RECTANGLE":
+    shape = getattr(data, "shape", "")
+    if shape == "RECTANGLE":
         return "STRIP"
-    if getattr(light_data, "shape", "") in {"DISK", "ELLIPSE"}:
-        return "SPOT" if getattr(light_data, "spread", math.pi) < math.radians(90) else "RING"
+    if shape == "ELLIPSE":
+        return "OVAL"
+    if shape == "DISK":
+        return "RING"                    # also an area "Spot" from before 0.13
     return "SOFTBOX"
+
+
+def area_shape(light_data):
+    """The shape an area light has (or had, before it became a spot or sun)."""
+    data = fresh(light_data)
+    if data.type == "AREA":
+        return light_shape(data)
+    key = data.get("plinth_area_shape")
+    return key if key in AREA_SHAPES else "SOFTBOX"
 
 
 def kelvin_to_rgb(kelvin):
@@ -785,9 +933,9 @@ def add_light(scene, shape="SOFTBOX", target=None):
     n = len(list_lights(scene))
     angle = math.radians(40 * n)
     obj.location = tgt.location + Vector((math.sin(angle) * 2.5, -math.cos(angle) * 2.5, 2.0)) * scale
-    set_light_shape(data, shape)
     _link(obj, studio_collection(scene))
     aim_at(obj, tgt)
+    set_light_shape(data, shape)               # after aiming: a sun keeps its distance to the target
     from . import gobos
     gobos.relink()                               # other lights' gobo cards don't shade it
     return obj
@@ -865,6 +1013,9 @@ def build_light_rig(scene, scale=1.0):
     for name, (shape, size, size_y, power, offset, kelvin) in LIGHT_RIG.items():
         full = "Plinth_" + name
         data = bpy.data.lights.get(full) or bpy.data.lights.new(full, "AREA")
+        if data.type != "AREA":                  # a spot or sun from before: the rig is area lights
+            data.type = "AREA"
+            data = fresh(data)
         data.shape = shape
         data.size = size * scale
         data.size_y = size_y * scale
@@ -1595,17 +1746,20 @@ def reset_light(scene, light, look=None):
     if rig is not None:
         shape, size, size_y, power, _off, kelvin = rig
         values = library.BUILTIN.get(look, {}).get("lights", {}).get(label, {})
-        data.energy = power * sc * sc * values.get("power", 1.0)
-        set_light_shape(data, "STRIP" if shape == "RECTANGLE" else "SOFTBOX")
-        data.size = size * sc * values.get("softness", 1.0)
-        if hasattr(data, "size_y"):
+        set_light_shape(data, values.get("shape") if values.get("shape") in LIGHT_SHAPES
+                        else ("STRIP" if shape == "RECTANGLE" else "SOFTBOX"))
+        data = fresh(data)
+        set_light_power(data, power * sc * sc * values.get("power", 1.0))
+        set_light_size(data, size * sc * values.get("softness", 1.0))
+        if data.type == "AREA" and "shape" not in values:
             data.size_y = size_y * sc * values.get("softness", 1.0)
         set_light_colour(data, values.get("color", kelvin_to_rgb(kelvin)))
         gobos.set_gobo(data, values.get("gobo", "NONE"))
     else:
-        data.energy = NEW_LIGHT["power"] * sc * sc
         set_light_shape(data, "SOFTBOX")
-        data.size = NEW_LIGHT["size"] * sc
+        data = fresh(data)
+        data.energy = NEW_LIGHT["power"] * sc * sc
+        set_light_size(data, NEW_LIGHT["size"] * sc)
         set_light_colour(data, kelvin_to_rgb(5000))
         gobos.set_gobo(data, "NONE")
     set_light_visible(light, False)

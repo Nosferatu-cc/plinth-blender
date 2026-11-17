@@ -14,6 +14,7 @@ group is left out, so a small viewport shows less rather than a pile-up.
 Rects are (x, y, w, h) in region pixels, origin bottom-left (Blender's).
 """
 
+import math
 from collections import namedtuple
 
 import bpy
@@ -185,7 +186,7 @@ def _frac(lo, hi, v):
 #   ("slider", id, label, frac, shown, setter(context, f)[, num])
 #       num = (lo, hi, "lin" | "log"): the number shown maps to f that way, so
 #       double-clicking the value can type it (overlay text field)
-#   ("shapes", [(key, label, on, act)])
+#   ("shapes", [(key, label, on, act)][, heading, id prefix])     # glyph tiles
 #   ("chips", heading, [(id, label, on, act)])
 #   ("scale", heading, hint, [(id, small, label, on, act)])       # Shoot quality
 #   ("primary", id, label, act)
@@ -297,27 +298,34 @@ def card_light(scene, products):
             return "Light", "NO STUDIO", [("primary", "build", "Build studio first", None),
                                           ("more", "Edit light")]
         return card_no_lights(scene)
-    data = light.data
+    data = studio.fresh(light.data)
     base_power, base_size = studio.light_base(light)
     sc = _rig_scale(scene)
     p_max = 4 * base_power * sc * sc
     s_lo, s_hi = 0.05 * sc, 3 * base_size * sc
     kelvin = studio.rgb_to_kelvin(tuple(data.color))
     shape = studio.light_shape(data)
+    k = studio.power_factor(data)                # the light's own unit per area watt
+    size = studio.light_size(data)
     rows = [
-        ("slider", "intensity", "Intensity", _frac(0, p_max, data.energy), "%d W" % round(data.energy),
-         lambda c, f: setattr(data, "energy", _lerp(0, p_max, f)), (0, p_max, "lin")),
-        ("slider", "softness", "Softness", _frac(s_lo, s_hi, data.size),
-         "%d%%" % round(100 * _frac(s_lo, s_hi, data.size)),
-         lambda c, f: _set_softness(data, _lerp(s_lo, s_hi, f)), (0, 100, "lin")),
+        ("slider", "intensity", "Intensity", _frac(0, p_max, studio.light_power(data)), studio.power_label(data),
+         lambda c, f: studio.set_light_power(studio.fresh(data), _lerp(0, p_max, f)), (0, p_max * k, "lin")),
+        ("slider", "softness", "Softness", _frac(s_lo, s_hi, size),
+         "%d%%" % round(100 * _frac(s_lo, s_hi, size)),
+         lambda c, f: studio.set_light_size(data, _lerp(s_lo, s_hi, f)), (0, 100, "lin")),
         ("slider", "warmth", "Warmth", _frac(10000, 2000, kelvin),
          studio.light_gel(data) or "%d K" % kelvin,
          lambda c, f: studio.set_light_colour(data, studio.kelvin_to_rgb(_lerp(10000, 2000, f))),
          (10000, 2000, "lin")),
-        ("shapes", [(k, v["label"], k == shape, (lambda c, k=k: studio.set_light_shape(data, k)))
-                    for k, v in studio.LIGHT_SHAPES.items()]),
-        aim_row(scene, light),
+        type_row(data),
     ]
+    if data.type == "AREA":
+        rows.append(("shapes", [(k, studio.LIGHT_SHAPES[k]["label"], k == shape,
+                                 (lambda c, k=k: studio.set_light_shape(data, k)))
+                                for k in studio.AREA_SHAPES]))
+    elif data.type == "SPOT":
+        rows.append(beam_row(data))
+    rows.append(aim_row(scene, light))
     rigs = library.rigs()
     if rigs:                                      # light rigs from the content library
         rows.append(("grid", "Rig", [("rig_" + k, v["label"], k == s.last_look,
@@ -325,7 +333,33 @@ def card_light(scene, products):
                                      for k, v in rigs.items()]))
     rows += [("more", "Edit light"),
              ("header", {"menu": ("light", light.name)})]       # issue 10: Duplicate/Remove in ⋯
-    return display(studio.light_label(light)), studio.LIGHT_SHAPES[shape]["label"].upper(), rows
+    return display(studio.light_label(light)), light_tag(data), rows
+
+
+def light_tag(data):
+    """'AREA · SOFTBOX', 'SPOT': the card and page tag."""
+    data = studio.fresh(data)
+    if data.type == "AREA":
+        return "AREA · " + studio.LIGHT_SHAPES[studio.light_shape(data)]["label"].upper()
+    return studio.LIGHT_TYPES[data.type]["label"].upper()
+
+
+def type_row(data):
+    """Blender's light types as tiles; Area comes back in the shape it had."""
+    data = studio.fresh(data)
+    return ("shapes", [(t, v["label"], t == data.type,
+                        (lambda c, t=t: studio.set_light_shape(
+                            data, studio.area_shape(data) if t == "AREA" else t)))
+                       for t, v in studio.LIGHT_TYPES.items()], "Type", "type_")
+
+
+def beam_row(data):
+    """A spot's cone: Beam angle."""
+    lo, hi = studio.SPOT_RANGE
+    deg = math.degrees(data.spot_size)
+    return ("slider", "beam", "Beam", _frac(lo, hi, data.spot_size), "%d°" % round(deg),
+            lambda c, f: setattr(studio.fresh(data), "spot_size", _lerp(lo, hi, f)),
+            (math.degrees(lo), math.degrees(hi), "lin"))
 
 
 def card_no_lights(scene):
@@ -334,8 +368,8 @@ def card_no_lights(scene):
     look = library.all_presets().get(scene.plinth.last_look, {}).get("label")
     return "Light", "NO LIGHTS", [
         ("note", "Every light has been removed. The HDRI still lights the product if one is on."),
-        ("shapes", [(k, v["label"], False, (lambda c, k=k: _add_light(c, k)))
-                    for k, v in studio.LIGHT_SHAPES.items()]),
+        ("shapes", [(k, v["label"], False, (lambda c, k=k: _add_light(c, "SOFTBOX" if k == "AREA" else k)))
+                    for k, v in studio.LIGHT_TYPES.items()], "Add", "type_"),
         ("primary", "add_light", "Add a light", lambda c: _add_light(c)),
         ("buttons", "restore_lights", "", "",
          [("restore_rig", ("Bring back %s lights" % look) if look and len(look) <= 14 else "Bring back the lights",
@@ -433,12 +467,6 @@ def _remove_light(context, light):
 def _add_light(context, shape="SOFTBOX"):
     tgt = bpy.data.objects.get(context.scene.plinth.active_target) or studio.get_target(context.scene)
     _select_light(context, studio.add_light(context.scene, shape=shape, target=tgt))
-
-
-def _set_softness(data, size):
-    aspect = data.size_y / data.size if data.size else 1.0
-    data.size = size
-    data.size_y = size * aspect
 
 
 def card_material(scene, products):
@@ -1117,7 +1145,7 @@ def group_light_chips(scene, g):
     editing = studio.light_label(active) if active is not None and scene.plinth.active_light != hdri.CHIP else None
     for light in lights:
         key = studio.light_label(light)
-        watts = "%d W" % round(light.data.energy)
+        watts = studio.power_label(light.data)
         w = g.measure(display(key), FONT * s) + g.measure(watts, SMALL * s) * 1.2 + 58 * s
         y -= 44 * s
         # Issue 8: a dot in the light's own colour, and its wattage.
@@ -1153,7 +1181,7 @@ def _row_tag(row):
     if row[0] in {"segrow", "switch", "buttons", "dropdown"}:
         return row[1]
     if row[0] == "shapes":
-        return "Shape"
+        return row[2] if len(row) > 2 else "Shape"
     if row[0] == "slider" and row[1].startswith("mat_"):
         return "mat_sliders"
     if row[0] == "slider" and row[1] in ("curve", "wall"):
@@ -1332,14 +1360,15 @@ def layout_row(els, row, ix, y, inner, g):
         els += st
     elif kind == "shapes":
         items = row[1]
+        heading, prefix = (row[2], row[3]) if len(row) > 3 else ("Shape", "shape_")
         y -= FONT * s
-        els.append(El("shape_head", "label", (ix, y, inner, FONT * s), "Shape",
-                      extra={"hints": {"shape_" + k: label for k, label, _on, _a in items}}))
+        els.append(El(prefix + "head", "label", (ix, y, inner, FONT * s), heading,
+                      extra={"hints": {prefix + k: label for k, label, _on, _a in items}}))
         y -= 8 * s + 48 * s
         gap = 6 * s
         w = (inner - gap * (len(items) - 1)) / len(items)
         for i, (key, label, on, act) in enumerate(items):
-            els.append(El("shape_" + key, "shape", (ix + i * (w + gap), y, w, 48 * s), label,
+            els.append(El(prefix + key, "shape", (ix + i * (w + gap), y, w, 48 * s), label,
                           on=on, act=act, extra=key))
     elif kind == "chips":
         _k, heading, items = row
